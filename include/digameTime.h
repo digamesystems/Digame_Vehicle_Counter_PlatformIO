@@ -29,6 +29,8 @@ const char *ntpServer = "time.nist.gov"; //"pool.ntp.org"; // Time server.
 const long gmtOffset_sec = 0;            // No timezone offset (using GMT)
 const int daylightOffset_sec = 0;        // No Daylight Savings time offset
 
+DS3231 myRTC;
+
 // Declares
 bool   initRTC();
 String getESPTime();    // Returns GMT time in the ESP32's internal RTC
@@ -64,7 +66,6 @@ String TimeToString(unsigned long t)
   int s = t % 60;
 
   sprintf(str, "%03ld:%02d:%02d:%02d", d, h, m, s);
-  // DEBUG_PRINT(" Uptime: ");
   String ret = String(str);
   DEBUG_PRINTLN(ret);
   return ret;
@@ -79,7 +80,6 @@ bool initRTC()
   if (rtcPresent())
   {
     DEBUG_PRINTLN("    RTC found. (Program will use time from RTC.)");
-    // stat +="   RTC  : OK\n";
     DEBUG_PRINT("    RTC Time: ");
     DEBUG_PRINTLN(getRTCTime());
     return true;
@@ -87,7 +87,6 @@ bool initRTC()
   else
   {
     DEBUG_PRINTLN("    ERROR! Could NOT find RTC. (Program will attempt to use NTP time.)");
-    // stat +="    RTC  : ERROR!\n";
     return false;
   }
 }
@@ -130,18 +129,20 @@ String getESPTime()
 bool rtcPresent()
 //****************************************************************************************
 {
+  //DEBUG_PRINTLN("HELLO FROM rtcPresent()");
   String tNow;
 
   tNow = getRTCTime();
 
-  // DEBUG_PRINTLN(tNow);
-
+  DEBUG_PRINTLN("  Time from DS3231: " + tNow);
+  
   // When there is no RTC module connected, getRTCTime returns a string
   // with the wrong format to be a real time value. A simple check is
   // the length of the string. A better test would be to use a cute
   // regular expression. TODO: Look into that.
 
   // Format: 2021-01-01 00:00:00 (length = 19)
+  //tNow="2021-01-01 00:00:00";
   return (tNow.length() == 19);
 }
 
@@ -151,33 +152,41 @@ bool rtcPresent()
 String getRTCTime()
 //****************************************************************************************
 {
+  //DEBUG_PRINTLN("HELLO FROM getRTCTime()");
+  String message;
 
-  DS3231 clock;
-  String message = "20";
+    message = "20";
 
-  message += twoDigits(clock.getYear());
-  message += "-";
-  bool cent;
-  message += twoDigits(clock.getMonth(cent));
-  message += "-";
-  message += twoDigits(clock.getDate());
-  message += " ";
-  bool hr;
-  bool amPM;
-  message += twoDigits(clock.getHour(hr, amPM));
-  message += ':';
-  message += twoDigits(clock.getMinute());
-  message += ':';
-  message += twoDigits(clock.getSecond());
+    Wire.begin();
 
-  // DEBUG_PRINTLN(message);
+    message += twoDigits(myRTC.getYear());
+    message += "-";
+    bool cent;
+    message += twoDigits(myRTC.getMonth(cent));
+    message += "-";
+    message += twoDigits(myRTC.getDate());
+    message += " ";
+    bool hr;
+    bool amPM;
+    message += twoDigits(myRTC.getHour(hr, amPM));
+    message += ':';
+    message += twoDigits(myRTC.getMinute());
+    message += ':';
+    message += twoDigits(myRTC.getSecond());
+    
+    //DEBUG_PRINTLN(message);
 
-  if (message.length() != 19)
-  {
-    message = "No RTC found.";
-  }
+    if (message.length() != 19)
+    {
+      DEBUG_PRINT("  RTC time seems to be in the wrong format! ");  
+      message = "No RTC found.";
+      DEBUG_PRINTLN(message);
+      message = getESPTime();
+      DEBUG_PRINTLN("  Using ESP Time: " + message);
+    } else {
+      //DEBUG_PRINTLN("  Valid format for RTC Time: " + message);
+    }
 
-  // Serial.println(clock.getTemperature());
   return message;
 }
 
@@ -246,8 +255,7 @@ int getRTCYear()
 float getRTCTemperature()
 //****************************************************************************************
 {
-  DS3231 clock;
-  return clock.getTemperature();
+  return myRTC.getTemperature();
 }
 
 
@@ -260,7 +268,9 @@ bool setRTCTime()
 
   String retStr;
   struct tm timeinfo;
+ 
 
+  DEBUG_PRINTLN(" Setting RTC from ESP32's internal RTC... ");
   if (!getLocalTime(&timeinfo))
   { // Read from the ESP32 RTC (not battery backed...)
     retStr = String("Failed to obtain NTP time");
@@ -268,15 +278,14 @@ bool setRTCTime()
   }
 
   // Set the external RTC
-  DS3231 clock;
-  clock.setClockMode(false); // 24 hour time
-  clock.setYear(timeinfo.tm_year - 100);
-  clock.setMonth(timeinfo.tm_mon + 1);
-  clock.setDate(timeinfo.tm_mday);
+  myRTC.setClockMode(false); // 24 hour time
+  myRTC.setYear(timeinfo.tm_year - 100);
+  myRTC.setMonth(timeinfo.tm_mon + 1);
+  myRTC.setDate(timeinfo.tm_mday);
 
-  clock.setHour(timeinfo.tm_hour);
-  clock.setMinute(timeinfo.tm_min);
-  clock.setSecond(timeinfo.tm_sec);
+  myRTC.setHour(timeinfo.tm_hour);
+  myRTC.setMinute(timeinfo.tm_min);
+  myRTC.setSecond(timeinfo.tm_sec);
 
   return true;
 }
@@ -336,7 +345,10 @@ bool synchTimesToNTP()
 String twoDigits(byte value)
 //****************************************************************************************
 {
+
   String message = String(value, DEC);
+  
+  //DEBUG_PRINTLN("HELLO FROM twoDigits() " + message);  
   if (value < 10)
   {
     message = "0" + message;

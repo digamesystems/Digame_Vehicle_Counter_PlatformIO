@@ -410,7 +410,6 @@ void showPartialXY(String msg, int x, int y)
 //******************************************************************************************
 {
   GxEPD2_GFX &display = getDisplay();
-  int digits = 0;
 
   display.setTextSize(3);
   display.setTextColor(GxEPD_BLACK);

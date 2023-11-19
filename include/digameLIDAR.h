@@ -16,8 +16,7 @@ TFMPlus tfmP;        // Create a TFMini Plus object
 
 int16_t initLIDARDist = 999; // The initial distance measured by the lidar when it wakes up.
 
-const int lidarSamples = 25;
-
+const int lidarSamples = 50;
 CircularBuffer<int, lidarSamples> lidarBuffer; // We're going to hang onto the last 25 raw data
                                                //   points to visualize what the sensor sees
 
@@ -274,7 +273,7 @@ int processLIDARSignal(Config config)
     lidarDistanceHistogram[(unsigned int)(tfDist / 10)]++; // Grabbing a histogram of distances
                                                            // to explore automatic lane determination...
 
-    lidarBuffer.push(intSmoothed); // Keep the last 100 points of smoothed data history for analysis
+    lidarBuffer.push(intSmoothed); // Keep the last  points of smoothed data history for analysis
 
     if ((smoothed < config.lidarZone1Max.toFloat()) &&
         (smoothed > config.lidarZone1Min.toFloat()))
@@ -728,6 +727,191 @@ int processLIDARSignal3(Config config)
 }
 
 
+
+// Breaking this out... 
+int16_t getLIDARDistanceMeasurement(){
+
+  int16_t tfDist = 0; // Distance to object in centimeters
+  int16_t tfFlux = 0; // Strength or quality of return signal
+  int16_t tfTemp = 0; // Internal temperature of Lidar sensor chip  
+  bool lidarResult = false; // Return value from reading the LIDAR sensor
+
+  lidarResult = tfmP.getData(tfDist, tfFlux, tfTemp); // Grab the results
+
+  if ((lidarResult) || (tfmP.status == TFMP_WEAK)) // Process good measurements
+                                                   // or weak ones
+  {
+    // Check the status code. If not "ready" one of several errors has occurred.
+    // Looking at the source in TFMPlus.cpp, lidarResult should only be true
+    // if everything is OK. Processing weak signals to avoid lockup looking off
+    // into infinity.
+
+    if (tfmP.status != TFMP_READY)
+    {
+      tfDist = 1001;
+    } // "something" is weird.
+
+    // When very close, or looking off into empty space, the sensor reports zero or a
+    // negative value. The short range isn't an issue for us.
+    // Any Zeros we see will be due to no reflective target in range.
+    if ((tfDist <= 0) || (tfDist >= 1000)) // Added the second check in case we pick up
+                                           // a long-range target.
+    {
+      tfDist = 999; // Limiting to 999 saves a digit in the messages to the server.
+    }
+  }  else  {
+    // Report the error
+     DEBUG_PRINTLN("LIDAR ERROR!");
+     tfmP.printStatus();
+    // Other than TFMP_WEAK, the other error I see occassionaly is 'CHECKSUM'
+    // Why would serial com have a problem?...
+    // TODO: Investigate.
+  }
+
+  return tfDist;
+}
+
+
+/****************************************************************************************
+18 Nov 2023
+Brain-dead counting algorithm. 
+Uses a threshold to count a car as present/absent in a lane.
+Threshold is the fraction of the last 50 points (1 sec) that are measured in the lane.
+****************************************************************************************/
+int processLIDARSignal3a(Config config)
+{
+  // LIDAR signal analysis parameters
+
+  static String distanceLog;
+  static unsigned long numMeasurements = 0;
+
+  int16_t tfDist = 0; // Distance to object in centimeters
+  int16_t tfFlux = 0; // Strength or quality of return signal
+  int16_t tfTemp = 0; // Internal temperature of Lidar sensor chip
+
+  static float zone1Strength = 0; // A measure of how 'present' a car is in each lane over an interval of time
+  static float zone2Strength = 0; // Note these are static and don't reset on every call
+
+  static bool carPresentLane1 = false;         // Do we see a car now?
+  static bool previousCarPresentLane1 = false; // Had we seen a car last time?
+
+  static bool carPresentLane2 = false;         // Do we see a car now?
+  static bool previousCarPresentLane2 = false; // Had we seen a car last time?
+
+  unsigned int carEvent1 = 0; // A variable for the serial plotter.
+  unsigned int carEvent2 = 0; // A variable for the serial plotter.
+
+  int retValue = 0; // Return value for the routine. Do we have a vehicle event?
+                    //  Which lane?
+
+  int threshold = config.lidarResidenceTime.toInt(); // Level of signal to count as present. TODO: RENAME TO SOMETHING BETTER.
+
+    tfDist = getLIDARDistanceMeasurement();  // Read from the LIDAR
+
+    lastDistanceMeasured = String(tfDist);
+    lidarDistanceHistogram[(unsigned int)(tfDist / 10)]++; // Grabbing a histogram of distances
+                                                           // to explore automatic lane determination...
+                                                           // The check for >= 1000 above is to avoid
+                                                           // exceeding the limits of the histogram array.
+
+    lidarBuffer.push(tfDist);          // The circular buffer of LIDAR data for analysis
+    lidarHistoryBuffer.push((tfDist)); // A longer history for display.
+
+    // TODO: Trying out a pre-filter here to look at the lidar history buffer
+    // and do a disposition of whether we should take this data seriously...
+    // There is a difference between 'glimpsing' something and 'seeing' it. I'm
+    // thinking of how snow can cause short little events around 1-2 meters...
+
+    // PRE-FILTER: Do we have enough signal to count as car-ness?
+    float bufferInteg1 = 0; // Integral of in-zone data in the buffer
+    float bufferInteg2 = 0;
+
+    for (int i = 0; i < lidarBuffer.size(); i++)
+    {
+      if ((lidarBuffer[i] < config.lidarZone1Max.toInt()) &&
+          (lidarBuffer[i] > config.lidarZone1Min.toInt()))
+      {
+        bufferInteg1 += 100/ lidarBuffer.size(); // in the window, we add signal
+        if (bufferInteg1 > 100) bufferInteg1 = 100;
+      }
+      
+      if ((lidarBuffer[i] < config.lidarZone2Max.toInt()) &&
+          (lidarBuffer[i] > config.lidarZone2Min.toInt()))
+      {
+        bufferInteg2 += 100 / lidarBuffer.size();
+        if (bufferInteg2 > 100) bufferInteg2 = 100;
+      } 
+    }
+
+    // Remember the last lane states
+    previousCarPresentLane1 = carPresentLane1;
+    previousCarPresentLane2 = carPresentLane2;
+
+    // Test for car-ness
+    if (bufferInteg1 > threshold) {
+      carPresentLane1 = true;
+    } else {
+      carPresentLane1 = false;
+    } 
+
+    if (bufferInteg2 > threshold) {
+      carPresentLane2 = true;  // We have Car!
+    } else {
+      carPresentLane2 = false;  // We don't have car.
+    }
+   
+    if ((previousCarPresentLane1 == true) && (carPresentLane1 == false))
+    { // The car was here and now has left the field of view.
+      carEvent1 = 200;
+      retValue = 1;
+    }
+    else
+    {
+      carEvent1 = 0;
+    }
+
+    if ((previousCarPresentLane2 == true) && (carPresentLane2 == false))
+    { // The car was here and now has left the field of view.
+      carEvent2 = 200;
+      retValue = 2;
+    }
+    else
+    {
+      carEvent2 = 0;
+    }
+
+
+    lidarStreamEntry = "";
+    lidarStreamEntry = \
+      String(tfDist) + " " + \
+      config.lidarZone1Max + " " + \
+      config.lidarZone1Min + " " + \
+      config.lidarResidenceTime + " " + \
+      /* /config.lidarZone2Max + " " + \
+      //config.lidarZone2Min + " " + \*/
+      String(carEvent1) + " " + \
+      String(carEvent2) + " " + \
+      String(zone1Strength) + " " + 
+      String (bufferInteg1);
+
+    if (config.logLidarEvents == "checked")
+    {
+      distanceLog = distanceLog + String(tfDist) + "\n";
+      numMeasurements += 1;
+      if (numMeasurements >= 100)
+      {
+        DEBUG_PRINTLN("SAVING...");
+        appendTextFile("/eventlog.txt", distanceLog);
+        numMeasurements = 0;
+        distanceLog = "";
+      }
+    }
+  tfmP.sendCommand(TRIGGER_DETECTION, 0); // Trigger a LIDAR measurment
+  return retValue;
+}
+
+
+
 /****************************************************************************************
 16 Nov 23
 A test function to allow stress testing of lidar reporting / collection.
@@ -740,8 +924,7 @@ int processLIDARSignal4(Config config, int desiredReturnValue)
   // LIDAR signal analysis parameters
 
   static String distanceLog;
-  static unsigned long numMeasurements = 0;
-
+  
   int16_t tfDist = 0; // Distance to object in centimeters
   int16_t tfFlux = 0; // Strength or quality of return signal
   int16_t tfTemp = 0; // Internal temperature of Lidar sensor chip

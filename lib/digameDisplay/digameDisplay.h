@@ -48,7 +48,7 @@ static GxEPD2_BW<GxEPD2_290_T94_V2, GxEPD2_290_T94_V2::HEIGHT> display5(GxEPD2_2
 // GxEPD2_GFX& display = display2;
 static String displayType = "154_SSD1681";
 
-static GxEPD2_GFX *mainDisplay;
+//static GxEPD2_GFX *mainDisplay;
 
 //******************************************************************************************
 #if defined(ESP8266) || defined(ESP32)

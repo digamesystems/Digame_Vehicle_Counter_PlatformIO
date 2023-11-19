@@ -374,9 +374,7 @@ void initWebServer() {
   });
 
   server.on("/distance", HTTP_GET, [](AsyncWebServerRequest *request){
-    //DEBUG_PRINTLN(lastDistanceMeasured);
-    //request->send(200, "text/plain", String(millis()) + "," +\
-    
+
     DEBUG_PRINTLN(String(lastDistanceMeasured));
 
     request->send(200, "text/plain", String(lastDistanceMeasured) + "," +\
