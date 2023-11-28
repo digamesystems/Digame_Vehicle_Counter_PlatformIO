@@ -157,7 +157,7 @@ String getRTCTime()
 
     message = "20";
 
-    Wire.begin();
+    Wire.begin();  // Start the I2C interface
 
     message += twoDigits(myRTC.getYear());
     message += "-";
@@ -270,7 +270,7 @@ bool setRTCTime()
   struct tm timeinfo;
  
 
-  DEBUG_PRINTLN(" Setting RTC from ESP32's internal RTC... ");
+  DEBUG_PRINTLN("  Setting RTC from ESP32's internal RTC... ");
   if (!getLocalTime(&timeinfo))
   { // Read from the ESP32 RTC (not battery backed...)
     retStr = String("Failed to obtain NTP time");

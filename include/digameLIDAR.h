@@ -849,13 +849,13 @@ int processLIDARSignal3a(Config config)
 
     // Test for car-ness
     if (bufferInteg1 > threshold) {
-      carPresentLane1 = true;
+      carPresentLane1 = true; // We have Car in Lane 1!
     } else {
-      carPresentLane1 = false;
+      carPresentLane1 = false; // We don't have car.
     } 
 
     if (bufferInteg2 > threshold) {
-      carPresentLane2 = true;  // We have Car!
+      carPresentLane2 = true;  // We have Car in Lane 2!
     } else {
       carPresentLane2 = false;  // We don't have car.
     }
@@ -880,15 +880,12 @@ int processLIDARSignal3a(Config config)
       carEvent2 = 0;
     }
 
-
     lidarStreamEntry = "";
     lidarStreamEntry = \
       String(tfDist) + " " + \
       config.lidarZone1Max + " " + \
       config.lidarZone1Min + " " + \
       config.lidarResidenceTime + " " + \
-      /* /config.lidarZone2Max + " " + \
-      //config.lidarZone2Min + " " + \*/
       String(carEvent1) + " " + \
       String(carEvent2) + " " + \
       String(zone1Strength) + " " + 
@@ -906,6 +903,7 @@ int processLIDARSignal3a(Config config)
         distanceLog = "";
       }
     }
+    
   tfmP.sendCommand(TRIGGER_DETECTION, 0); // Trigger a LIDAR measurment
   return retValue;
 }
